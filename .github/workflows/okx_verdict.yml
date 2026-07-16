@@ -34,8 +34,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: verdicts.sqlite
-          key: verdicts-sqlite-${{ github.run_id }}
-          restore-keys: verdicts-sqlite-
+          key: verdicts-sqlite-v2-${{ github.run_id }}
+          restore-keys: verdicts-sqlite-v2-
 
       - uses: actions/setup-python@v5
         if: steps.guard.outputs.go == '1'
@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: verdicts.sqlite
-          key: verdicts-sqlite-${{ github.run_id }}
+          key: verdicts-sqlite-v2-${{ github.run_id }}
 
       - name: upload db artifact (weekly audit copy)
         if: steps.guard.outputs.go == '1'

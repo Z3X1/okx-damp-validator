@@ -1,5 +1,6 @@
-"""L3 SIGNALS — GEX per strike，dealer 符號外部化到 config（USER_FILL ①）"""
-import sys, os
+"""L3 SIGNALS — GEX per strike，dealer 符號外部化到 config（USER_FILL ①）
+v1.1: markVol 健全性檢查 + 實現波動 fallback（demo 環境 opt-summary 髒數據防禦）"""
+import sys, os, math
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DEALER_SIGN_MODEL
 
@@ -11,8 +12,6 @@ def dealer_sign(instId: str) -> float:
     raise ValueError(f"未知 DEALER_SIGN_MODEL: {DEALER_SIGN_MODEL}")
 
 def nearest_daily_expiry(instruments, now_utc):
-    """回傳 T≈24h 的到期碼 yymmdd（明日 08:00 UTC 交割）。動態 key 解析，
-    絕不 hardcode 到期日（GEX Pin bug 教訓）。"""
     from datetime import timedelta
     target = (now_utc + timedelta(days=1)).strftime("%y%m%d")
     codes = {i["instId"].split("-")[2] for i in instruments if i["state"] == "live"}
@@ -21,24 +20,42 @@ def nearest_daily_expiry(instruments, now_utc):
     future = sorted(c for c in codes if c > now_utc.strftime("%y%m%d"))
     return future[0] if future else None
 
+def realized_sigma_24h(cli, spot):
+    """fallback：24 根 1H K 線的實現波動 → σ24h（美元）。真實行情，與期權標記獨立。"""
+    rows = cli.candles("BTC-USDT", "1H", 169)
+    closes = [float(r[4]) for r in rows][::-1]          # OKX 回傳新到舊，反轉
+    if len(closes) < 100:
+        return None
+    lr = [math.log(closes[i+1]/closes[i]) for i in range(len(closes)-1)]
+    m = sum(lr)/len(lr)
+    var = sum((x-m)**2 for x in lr)/(len(lr)-1)
+    return (var**0.5) * (24**0.5) * spot
+
 def pin_and_sigma(cli, fam, expiry_code):
-    """回傳 (pin_strike, sigma_24h_usd, atm_iv)。σ 由目標到期 ATM markVol 推出。"""
+    """回傳 (pin, sigma_24h_usd, iv_used)。IV 健全區間 [5%, 500%]，壞值走實現波動。"""
     S = cli.spot()
     oi = {d["instId"]: float(d["oi"]) for d in cli.open_interest(fam)}
-    gex, atm_iv, atm_dist = {}, None, 1e18
+    gex, ivs = {}, []
     for g in cli.opt_summary(fam):
-        iid = g["instId"]
-        parts = iid.split("-")
+        iid = g["instId"]; parts = iid.split("-")
         if parts[2] != expiry_code or iid not in oi:
             continue
         k = float(parts[3])
         gamma = float(g.get("gamma") or 0)
         gex[k] = gex.get(k, 0.0) + dealer_sign(iid) * abs(gamma) * oi[iid]
         mv = float(g.get("markVol") or 0)
-        if mv > 0 and abs(k - S) < atm_dist:
-            atm_dist, atm_iv = abs(k - S), mv
-    if not gex or not atm_iv:
+        if 0.05 < mv < 5.0:                              # 健全性閘門
+            ivs.append((abs(k - S), mv))
+    if not gex:
         return None, None, None
     pin = max(gex, key=lambda k: abs(gex[k]))
-    sigma_usd = atm_iv * (1 / 365) ** 0.5 * S
-    return pin, sigma_usd, atm_iv
+    if ivs:                                              # 取最接近 ATM 的健全 IV
+        ivs.sort()
+        iv = ivs[0][1]
+        sigma = iv * (1/365)**0.5 * S
+        return pin, sigma, iv
+    sigma = realized_sigma_24h(cli, S)                   # fallback：實現波動
+    if sigma is None:
+        return None, None, None
+    iv_equiv = sigma / S * 365**0.5
+    return pin, sigma, iv_equiv

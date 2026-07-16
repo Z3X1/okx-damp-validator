@@ -16,13 +16,13 @@ class OKX:
     def _req(self, method, path, params=None, body=None, private=False, retries=3):
         qs = "?" + urlencode(params) if params else ""
         body_s = json.dumps(body) if body else ""
-        headers = {"Content-Type": "application/json", "x-simulated-trading": "1"}
+        headers = {"Content-Type": "application/json"}
         if private:
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             sig = base64.b64encode(hmac.new(
                 self.secret, f"{ts}{method}{path}{qs}{body_s}".encode(), hashlib.sha256
             ).digest()).decode()
-            headers |= {"OK-ACCESS-KEY": self.key, "OK-ACCESS-SIGN": sig,
+            headers |= {"x-simulated-trading": "1", "OK-ACCESS-KEY": self.key, "OK-ACCESS-SIGN": sig,
                         "OK-ACCESS-TIMESTAMP": ts, "OK-ACCESS-PASSPHRASE": self.pw}
         last = None
         for i in range(retries):
@@ -69,3 +69,7 @@ class OKX:
         return self._req("POST", "/api/v5/trade/order", body={
             "instId": instId, "tdMode": "cross", "side": side,
             "ordType": "market", "sz": str(sz)}, private=True)
+
+    def candles(self, instId, bar="1H", limit=25):
+        return self._req("GET", "/api/v5/market/candles",
+                         {"instId": instId, "bar": bar, "limit": str(limit)})
