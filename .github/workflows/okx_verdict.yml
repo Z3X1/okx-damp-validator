@@ -1,0 +1,70 @@
+name: okx-damp-validator
+on:
+  schedule:
+    - cron: "15 * * * *"        # 每小時 :15（你的 oracle.yml 同款守門模式）
+  workflow_dispatch:             # 手動觸發（首次驗證用）
+
+permissions:
+  contents: read
+
+concurrency:
+  group: okx-damp-validator
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # 守門：非 7–13 UTC 直接退出省配額（pipeline 內部再做精確窗判斷）
+      - name: hour guard
+        id: guard
+        run: |
+          H=$(date -u +%H)
+          if [ "$H" -ge 7 ] && [ "$H" -le 13 ]; then
+            echo "go=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=0" >> "$GITHUB_OUTPUT"; echo "skip: hour=$H UTC"
+          fi
+
+      - name: restore sqlite
+        if: steps.guard.outputs.go == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: verdicts.sqlite
+          key: verdicts-sqlite-${{ github.run_id }}
+          restore-keys: verdicts-sqlite-
+
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.go == '1'
+        with: { python-version: "3.12" }
+
+      - name: deps
+        if: steps.guard.outputs.go == '1'
+        run: pip install requests
+
+      - name: pipeline
+        if: steps.guard.outputs.go == '1'
+        env:
+          OKX_DEMO_KEY:    ${{ secrets.OKX_DEMO_KEY }}
+          OKX_DEMO_SECRET: ${{ secrets.OKX_DEMO_SECRET }}
+          OKX_DEMO_PASS:   ${{ secrets.OKX_DEMO_PASS }}
+        run: python src/pipeline.py
+
+      - name: save sqlite
+        if: steps.guard.outputs.go == '1'
+        uses: actions/cache/save@v4
+        with:
+          path: verdicts.sqlite
+          key: verdicts-sqlite-${{ github.run_id }}
+
+      - name: upload db artifact (weekly audit copy)
+        if: steps.guard.outputs.go == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verdicts-db
+          path: verdicts.sqlite
+          retention-days: 30
+          overwrite: true
