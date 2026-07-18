@@ -87,4 +87,3 @@ jobs:
       - name: deploy pages
         if: steps.guard.outputs.go == '1'
         uses: actions/deploy-pages@v4
-</parameter>
