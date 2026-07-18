@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DB_PATH, SPRT_P0, SPRT_P1, BAND_SIGMA, PIN_FIRE_K, STAGE2_MIN_N
 from src.stats import sprt, bootstrap, damp_hat
 
-PASSWORD = "Z3X1Damp"          # <<< 改這行換儀表板密碼
+PASSWORD = "Z3X1"          # <<< 改這行換儀表板密碼
 SITE_DIR = "site"
 
 ACCT_DDL = """
