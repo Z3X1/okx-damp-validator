@@ -144,4 +144,3 @@ if __name__ == "__main__":
     ensure_acct(con)
     snapshot_equity(con)
     render(con)
-</parameter>
