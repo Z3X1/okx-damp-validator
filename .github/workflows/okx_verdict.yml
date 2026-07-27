@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -29,14 +29,6 @@ jobs:
           else
             echo "go=0" >> "$GITHUB_OUTPUT"; echo "skip: hour=$H UTC"
           fi
-
-      - name: restore sqlite
-        if: steps.guard.outputs.go == '1'
-        uses: actions/cache/restore@v4
-        with:
-          path: verdicts.sqlite
-          key: verdicts-sqlite-v2-${{ github.run_id }}
-          restore-keys: verdicts-sqlite-v2-
 
       - uses: actions/setup-python@v5
         if: steps.guard.outputs.go == '1'
@@ -62,12 +54,15 @@ jobs:
           OKX_DEMO_PASS:   ${{ secrets.OKX_DEMO_PASS }}
         run: python src/present.py
 
-      - name: save sqlite
+      - name: commit db
         if: steps.guard.outputs.go == '1'
-        uses: actions/cache/save@v4
-        with:
-          path: verdicts.sqlite
-          key: verdicts-sqlite-v2-${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase || true
+          git add verdicts.sqlite
+          git diff --cached --quiet || git commit -m "db: $(date -u +%FT%H:%MZ)"
+          git push
 
       - name: upload db artifact
         if: steps.guard.outputs.go == '1'
